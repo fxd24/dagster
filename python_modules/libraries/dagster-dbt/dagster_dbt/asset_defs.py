@@ -34,7 +34,7 @@ from dagster import (
     get_dagster_logger,
     op,
 )
-from dagster._annotations import deprecated_param, only_allow_hidden_params_in_kwargs
+from dagster._annotations import hidden_param, only_allow_hidden_params_in_kwargs
 from dagster._core.definitions.events import (
     AssetMaterialization,
     AssetObservation,
@@ -636,50 +636,44 @@ def load_assets_from_dbt_project(
 
 # declare hidden parameter that will break at 2.0
 def hidden_until_20_param(param: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    return functools.partial(deprecated_param, param=param, hidden=True, breaking_version="2.0")
+    return functools.partial(hidden_param, param=param, hidden=True, breaking_version="2.0")
 
 
-@deprecated_param(
+@hidden_param(
     param="manifest_json",
     breaking_version="0.21",
     additional_warn_text="Use manifest instead",
-    hidden=True,
 )
-@deprecated_param(
+@hidden_param(
     param="dbt_resource_key",
     breaking_version="0.21",
     additional_warn_text=(
         "Use the `@dbt_assets` decorator if you need to customize your resource key."
     ),
-    hidden=True,
 )
-@deprecated_param(
+@hidden_param(
     param="use_build_command",
     breaking_version="0.21",
     additional_warn_text=(
         "Use the `@dbt_assets` decorator if you need to customize the underlying dbt commands."
     ),
-    hidden=True,
 )
-@deprecated_param(
+@hidden_param(
     param="partitions_def",
     breaking_version="0.21",
     additional_warn_text="Use the `@dbt_assets` decorator to define partitioned dbt assets.",
-    hidden=True,
 )
-@deprecated_param(
+@hidden_param(
     param="partition_key_to_vars_fn",
     breaking_version="0.21",
     additional_warn_text="Use the `@dbt_assets` decorator to define partitioned dbt assets.",
-    hidden=True,
 )
-@deprecated_param(
+@hidden_param(
     param="runtime_metadata_fn",
     breaking_version="0.21",
     additional_warn_text=(
         "Use the `@dbt_assets` decorator if you need to customize runtime metadata."
     ),
-    hidden=True,
 )
 @hidden_until_20_param(param="key_prefix")
 @hidden_until_20_param(param="source_key_prefix")
