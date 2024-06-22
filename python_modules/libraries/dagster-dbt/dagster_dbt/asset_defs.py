@@ -636,7 +636,7 @@ def load_assets_from_dbt_project(
 
 # declare hidden parameter that will break at 2.0
 def hidden_until_20_param(param: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    return functools.partial(hidden_param, param=param, hidden=True, breaking_version="2.0")
+    return functools.partial(hidden_param, param=param, breaking_version="2.0")
 
 
 @hidden_param(
