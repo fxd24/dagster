@@ -27,8 +27,8 @@ import pendulum
 
 import dagster._check as check
 from dagster._annotations import PublicAttr, public
-from dagster._core.errors import DagsterInvariantViolationError
 from dagster._core.instance import DynamicPartitionsStore
+from dagster._record import IHaveNew, record_custom
 from dagster._serdes import whitelist_for_serdes
 from dagster._serdes.serdes import NamedTupleSerializer
 from dagster._seven.compat.pendulum import (
@@ -237,21 +237,14 @@ class PersistedTimeWindow(
         return TimeWindow(start=self.start, end=self.end)
 
 
-@whitelist_for_serdes(is_pickleable=False)
-class TimeWindowPartitionsDefinition(
-    PartitionsDefinition,
-    NamedTuple(
-        "_TimeWindowPartitionsDefinition",
-        [
-            ("start", TimestampWithTimezone),
-            ("timezone", PublicAttr[str]),
-            ("end", Optional[TimestampWithTimezone]),
-            ("fmt", PublicAttr[str]),
-            ("end_offset", PublicAttr[int]),
-            ("cron_schedule", PublicAttr[str]),
-        ],
-    ),
-):
+@whitelist_for_serdes
+@record_custom(
+    field_to_new_mapping={
+        "start_ts": "start",
+        "end_ts": "end",
+    }
+)
+class TimeWindowPartitionsDefinition(PartitionsDefinition, IHaveNew):
     r"""A set of partitions where each partition corresponds to a time window.
 
     The provided cron_schedule determines the bounds of the time windows. E.g. a cron_schedule of
@@ -287,6 +280,13 @@ class TimeWindowPartitionsDefinition(
             time. If end_offset is 1, the second-to-last partition ends before the current time,
             and so on.
     """
+
+    start_ts: TimestampWithTimezone
+    timezone: PublicAttr[str]
+    end_ts: Optional[TimestampWithTimezone]
+    fmt: PublicAttr[str]
+    end_offset: PublicAttr[int]
+    cron_schedule: PublicAttr[str]
 
     def __new__(
         cls,
@@ -351,14 +351,20 @@ class TimeWindowPartitionsDefinition(
                 " TimeWindowPartitionsDefinition."
             )
 
-        return super(TimeWindowPartitionsDefinition, cls).__new__(
-            cls, start, timezone, end, fmt, end_offset, cron_schedule
+        return super().__new__(
+            cls,
+            start_ts=start,
+            timezone=timezone,
+            end_ts=end,
+            fmt=fmt,
+            end_offset=end_offset,
+            cron_schedule=cron_schedule,
         )
 
     @public
     @cached_property
     def start(self) -> datetime:
-        start_timestamp_with_timezone = self._asdict()["start"]
+        start_timestamp_with_timezone = self.start_ts
         return pendulum.from_timestamp(
             start_timestamp_with_timezone.timestamp, start_timestamp_with_timezone.timezone
         )
@@ -366,7 +372,7 @@ class TimeWindowPartitionsDefinition(
     @public
     @cached_property
     def end(self) -> Optional[datetime]:
-        end_timestamp_with_timezone = self._asdict()["end"]
+        end_timestamp_with_timezone = self.end_ts
 
         if not end_timestamp_with_timezone:
             return None
@@ -516,13 +522,6 @@ class TimeWindowPartitionsDefinition(
 
     def __hash__(self):
         return hash(tuple(self.__repr__()))
-
-    def __getstate__(self):
-        # Only namedtuples where the ordering of fields matches the ordering of __new__ args
-        # are pickleable. This does not apply for TimeWindowPartitionsDefinition, so we
-        # override __getstate__ to raise an error when attempting to pickle.
-        # https://github.com/dagster-io/dagster/issues/2372
-        raise DagsterInvariantViolationError("TimeWindowPartitionsDefinition is not pickleable")
 
     @functools.lru_cache(maxsize=100)
     def time_window_for_partition_key(self, partition_key: str) -> TimeWindow:
@@ -1087,6 +1086,13 @@ class DailyPartitionsDefinition(TimeWindowPartitionsDefinition):
         # creates partitions (2022-03-12-16:15, 2022-03-13-16:15), (2022-03-13-16:15, 2022-03-14-16:15), ...
     """
 
+    # mapping for fields defined on TimeWindowPartitionsDefinition to this subclasses __new__
+    __field_remap__ = {
+        "start_ts": "start_date",
+        "end_ts": "end_date",
+        "cron_schedule": None,
+    }
+
     def __new__(
         cls,
         start_date: Union[datetime, str],
@@ -1253,6 +1259,13 @@ class HourlyPartitionsDefinition(TimeWindowPartitionsDefinition):
         # creates partitions (2022-03-12-00:15, 2022-03-12-01:15), (2022-03-12-01:15, 2022-03-12-02:15), ...
     """
 
+    # mapping for fields defined on TimeWindowPartitionsDefinition to this subclasses __new__
+    __field_remap__ = {
+        "start_ts": "start_date",
+        "end_ts": "end_date",
+        "cron_schedule": None,
+    }
+
     def __new__(
         cls,
         start_date: Union[datetime, str],
@@ -1386,6 +1399,13 @@ class MonthlyPartitionsDefinition(TimeWindowPartitionsDefinition):
         MonthlyPartitionsDefinition(start_date="2022-03-12", minute_offset=15, hour_offset=3, day_offset=5)
         # creates partitions (2022-04-05-03:15, 2022-05-05-03:15), (2022-05-05-03:15, 2022-06-05-03:15), ...
     """
+
+    # mapping for fields defined on TimeWindowPartitionsDefinition to this subclasses __new__
+    __field_remap__ = {
+        "start_ts": "start_date",
+        "end_ts": "end_date",
+        "cron_schedule": None,
+    }
 
     def __new__(
         cls,

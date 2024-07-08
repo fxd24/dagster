@@ -282,7 +282,9 @@ def as_dict_for_new(obj) -> Mapping[str, Any]:
     from_obj = {}
     for k, v in as_dict(obj).items():
         if k in remap:
-            from_obj[remap[k]] = v
+            new_key = remap[k]
+            if new_key is not None:
+                from_obj[new_key] = v
         else:
             from_obj[k] = v
 

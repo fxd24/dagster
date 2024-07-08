@@ -28,7 +28,6 @@ from dagster._core.definitions.time_window_partitions import (
     dst_safe_strptime,
 )
 from dagster._core.definitions.timestamp import TimestampWithTimezone
-from dagster._core.errors import DagsterInvariantViolationError
 from dagster._core.test_utils import freeze_time
 from dagster._serdes import deserialize_value, serialize_value
 from dagster._time import create_datetime, parse_time_string
@@ -1523,15 +1522,14 @@ def test_time_window_partitions_def_serialization(partitions_def):
     assert deserialized.start.tzinfo == time_window_partitions_def.start.tzinfo
 
 
-def test_cannot_pickle_time_window_partitions_def():
+def test_pickle_time_window_partitions_def():
     import datetime
 
     partitions_def = TimeWindowPartitionsDefinition(
         datetime.datetime(2021, 1, 1), "America/Los_Angeles", cron_schedule="0 0 * * *"
     )
 
-    with pytest.raises(DagsterInvariantViolationError, match="not pickleable"):
-        pickle.loads(pickle.dumps(partitions_def))
+    assert pickle.loads(pickle.dumps(partitions_def)) == partitions_def
 
 
 def test_time_window_partitions_subset_add_partition_to_front():
