@@ -1,0 +1,101 @@
+---
+title: "Writing a multi-asset decorator integration"
+---
+
+# Writing a multi-asset decorator integration
+
+You may have noticed that Dagster makes frequent use of decorators when working with assets, jobs, ops, and more. If you have a service that produces many assets, it is possible to define it as a multi-asset decorator — offering a consistent and intuitive developer experience to existing Dagster APIs.
+
+Existing integrations that implement this approach include:
+
+- [dbt](https://docs.dagster.io/integrations/dbt)
+- [Embedded ELT: dlt](https://docs.dagster.io/integrations/embedded-elt/dlt)
+- [Embedded ELT: Sling](https://docs.dagster.io/integrations/embedded-elt/sling)
+
+## Background
+
+### What the heck is a decorator?
+
+Before we dive into writing an integration that provides a multi-asset decorator, let's take a step back and review what a decorator is, and why you may consider using it.
+
+A Python decorator is a function that wraps another function by adding an annotation above the function prefixed with an `@` symbol. It allows you to modify the behavior of an existing function without changing the source code of that function directly.
+
+For example, say we have a function that performs some kind of computation.
+
+```python
+def add(a: int, b: int) -> int:
+    return a + b
+```
+
+Say we want to double the output of a function. We can create a decorator that modifies the output of the function that it wraps, and return the new modified value.
+
+<Note>
+  A function that takes another function as input, or returns a function as a
+  result, is traditionally called a{" "}
+  <a href="https://en.wikipedia.org/wiki/Higher-order_function">
+    higher-order function
+  </a>
+  .
+</Note>
+
+To define a decorator, you write a function that takes a function as an input argument. Within this function you define a wrapper function that encapsulates the function you're modifying, and then this wrapper function is returned by your decorator.
+
+```python
+def double(func):
+    def _wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        if isinstance(result, (int, float)):
+            return result * 2
+        else:
+            return result
+    return _wrapper
+```
+
+We've defined a function called `double` that implements a `_wrapper` function. This function accepts variable `*args` and `**kwargs`, passing them to the inner function that it wraps. It calls the function it wraps, and modifies the output if the result is a numeric type.
+
+```python
+@double
+def add(a: int, b: int) -> int:
+    return a + b
+
+# >>> add(2, 3)
+# 10
+```
+
+Decorators are extremely powerful in that you can perform operations before and after the function it wraps, and you can also manipulate the value returned by the function itself.
+
+### Why decorators in Dagster
+
+In the context of Dagster, decorators are helpful in that we are often wrapping some form of processing. For example, when writing an asset, you define your processing code, and by annotating that function with the <PyObject object="asset" decorator /> decorator. Then, the internal Dagster code can register the asset, assign metadata, pass in context data, or perform any other variety of operations that are required to integrate your asset code with the Dagster platform.
+
+## Walkthrough
+
+Now that we have a general idea of what a decorator is, and why it's a useful to in the context of developing Dagster code, let's walk through the development of a new multi-asset integration. This integration will take a YAML file, and produce a multi-asset, allowing the end-user to customize the translation of definition spec to how it maps to Dagster concepts.
+
+### Input
+
+This hypothetical tool is configured using a YAML definition file where someone can define source and destination databases, along with the tables that they would like to replicate.
+
+```yaml
+connections:
+  source:
+    type: duckdb
+    connection: example.duckdb
+  destination:
+    type: postgres
+    connection: postgresql://postgres:postgres@localhost/postgres
+
+tables:
+  - name: users
+    primary_key: id
+  - name: products
+    primary_key: id
+  - name: activity
+    primary_key: id
+```
+
+For our integration, we would like to generate an asset for each table that is being replicated.
+
+### Implementation
+
+...
