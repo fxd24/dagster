@@ -4,14 +4,14 @@ title: "Approaches to writing integrations"
 
 # Approaches to writing integrations
 
-While there are many approaches that one can take in writing an integration for Dagster, this guide outlines a few ways that are considered best-practices.
+There are many approaches to writing integrations in Dagster. The choice of approach depends on the specific requirements of the integration, the level of control needed, and the complexity of the external system being integrated. By reviewing the pros and cons of each approach, it is possible to make an informed decision on the best method for a specific use case. The following are typical approaches that align with Dagster's best practices.
 
 - Resource providers
 - Builder methods
 - Multi-Asset decorators
 - Pipes protocol
 
-## 1. Resource providers
+## Resource providers
 
 One of the most fundamental features that can be implemented in an integration is a resource object to interface with an external service. For example, the `dagster-snowflake` integration provides a custom `SnowflakeResource` that is a wrapper around the Snowflake `connector` object.
 
@@ -26,9 +26,9 @@ One of the most fundamental features that can be implemented in an integration i
 
 ### Tutorial
 
-< insert tutorial for writing a resource here >
+<Note>A tutorial for writing a resource-based integration is coming soon!</Note>
 
-## 2. Builder methods
+## Builder methods
 
 ### Pros
 
@@ -43,9 +43,9 @@ One of the most fundamental features that can be implemented in an integration i
 
 ### Tutorial
 
-< insert tutorial for writing a builder method here  >
+<Note>A tutorial for writing a builder method integration is coming soon!</Note>
 
-## 3. Multi-asset decorators
+## Multi-asset decorators
 
 ### Pros
 
@@ -60,9 +60,12 @@ One of the most fundamental features that can be implemented in an integration i
 
 ### Tutorial
 
-< insert tutorial for writing a multi-asset decorator here >
+<Note>
+  A tutorial for writing a multi-asset decorator based integration is coming
+  soon!
+</Note>
 
-## 4. Pipes protocol
+## Pipes protocol
 
 ### Pros
 
@@ -77,8 +80,4 @@ One of the most fundamental features that can be implemented in an integration i
 
 ### Tutorial
 
-< insert tutorial for writing a pipes based integration here >
-
-## Conclusion
-
-Each approach to writing integrations in Dagster has its own set of advantages and disadvantages. The choice of approach depends on the specific requirements of the integration, the level of control needed, and the complexity of the external system being integrated. By understanding the steps involved and the pros and cons of each approach, developers can make informed decisions on the best method to use for their specific use case.
+<Note>A tutorial for writing a pipes based integration is coming soon!</Note>
