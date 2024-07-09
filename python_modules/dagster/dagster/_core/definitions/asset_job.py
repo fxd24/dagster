@@ -13,6 +13,7 @@ from typing import (
     Set,
     Tuple,
     Union,
+    cast,
 )
 
 from toposort import CircularDependencyError
@@ -31,7 +32,7 @@ from dagster._core.utils import toposort
 from dagster._utils.merger import merge_dicts
 
 from .asset_layer import AssetLayer
-from .assets import AssetsDefinition
+from .assets import AssetGraphComputation, AssetsDefinition
 from .config import ConfigMapping
 from .dependency import (
     BlockingAssetChecksDependencyDefinition,
@@ -57,8 +58,6 @@ ASSET_BASE_JOB_PREFIX = "__ASSET_JOB"
 
 if TYPE_CHECKING:
     from dagster._core.definitions.run_config import RunConfig
-
-    from .asset_check_spec import AssetCheckSpec
 
 
 def is_base_asset_job_name(name: str) -> bool:
@@ -205,44 +204,24 @@ def build_asset_job(
         asset_graph, asset_graph.executable_asset_keys, partitions_def
     )
 
-    deps, assets_defs_by_node_handle = build_node_deps(asset_graph)
-
-    # attempt to resolve cycles using multi-asset subsetting
-    if _has_cycles(deps):
-        asset_graph = _attempt_resolve_node_cycles(asset_graph)
-        deps, assets_defs_by_node_handle = build_node_deps(asset_graph)
-
-    node_defs = [
-        asset.node_def
-        for asset in asset_graph.assets_defs_for_keys(
-            [
-                *asset_graph.executable_asset_keys,
-                *asset_graph.asset_check_keys,
-            ]
-        )
-    ]
-
-    graph = GraphDefinition(
-        name=name,
-        node_defs=node_defs,
-        dependencies=deps,
-        description=description,
-        input_mappings=None,
-        output_mappings=None,
-        config=None,
-    )
-
-    asset_layer = AssetLayer.from_graph_and_assets_node_mapping(
-        graph_def=graph,
-        assets_defs_by_outer_node_handle=assets_defs_by_node_handle,
+    merged_computation = AssetGraphComputation.merge(
+        [
+            assets_def.computation
+            for assets_def in asset_graph.assets_defs
+            if assets_def.computation
+        ],
         asset_graph=asset_graph,
+        outer_graph_name=name,
     )
+
+    asset_layer = AssetLayer(asset_graph=asset_graph, computation=merged_computation)
 
     all_resource_defs = get_all_resource_defs(asset_graph, wrapped_resource_defs)
 
+    graph_def = cast(GraphDefinition, merged_computation.node_def)
     if _asset_selection_data:
         original_job = _asset_selection_data.parent_job_def
-        return graph.to_job(
+        return graph_def.to_job(
             resource_defs=all_resource_defs,
             config=config,
             tags=tags,
@@ -257,7 +236,7 @@ def build_asset_job(
             version_strategy=original_job.version_strategy,
         )
 
-    return graph.to_job(
+    return graph_def.to_job(
         resource_defs=all_resource_defs,
         config=config,
         tags=tags,
@@ -435,25 +414,27 @@ def _infer_and_validate_common_partitions_def(
 
 
 def _get_blocking_asset_check_output_handles_by_asset_key(
-    assets_defs_by_node_handle: Mapping[NodeHandle, AssetsDefinition],
+    computations_defs_by_node_handle: Mapping[NodeHandle, AssetGraphComputation],
+    blocking_check_keys: AbstractSet[AssetCheckKey],
 ) -> Mapping[AssetKey, AbstractSet[NodeOutputHandle]]:
     """For each asset key, returns the set of node output handles that correspond to asset check
     specs that should block the execution of downstream assets if they fail.
     """
-    check_specs_by_node_output_handle: Mapping[NodeOutputHandle, AssetCheckSpec] = {}
+    check_keys_by_node_output_handle: Mapping[NodeOutputHandle, AssetCheckKey] = {}
 
-    for node_handle, assets_def in assets_defs_by_node_handle.items():
-        for output_name, check_spec in assets_def.check_specs_by_output_name.items():
-            check_specs_by_node_output_handle[
-                NodeOutputHandle(node_handle=node_handle, output_name=output_name)
-            ] = check_spec
+    for node_handle, computation in computations_defs_by_node_handle.items():
+        for output_name, check_key in computation.check_keys_by_output_name.items():
+            if check_key in computation.selected_asset_check_keys:
+                check_keys_by_node_output_handle[
+                    NodeOutputHandle(node_handle=node_handle, output_name=output_name)
+                ] = check_key
 
     blocking_asset_check_output_handles_by_asset_key: Dict[AssetKey, Set[NodeOutputHandle]] = (
         defaultdict(set)
     )
-    for node_output_handle, check_spec in check_specs_by_node_output_handle.items():
-        if check_spec.blocking:
-            blocking_asset_check_output_handles_by_asset_key[check_spec.asset_key].add(
+    for node_output_handle, check_key in check_keys_by_node_output_handle.items():
+        if check_key in blocking_check_keys:
+            blocking_asset_check_output_handles_by_asset_key[check_key.asset_key].add(
                 node_output_handle
             )
 
@@ -461,22 +442,21 @@ def _get_blocking_asset_check_output_handles_by_asset_key(
 
 
 def build_node_deps(
-    asset_graph: AssetGraph,
-) -> Tuple[
-    DependencyMapping[NodeInvocation],
-    Mapping[NodeHandle, AssetsDefinition],
-]:
+    computations: Sequence[AssetGraphComputation], asset_graph: AssetGraph
+) -> Tuple[DependencyMapping[NodeInvocation], Mapping[NodeHandle, AssetGraphComputation]]:
     # sort so that nodes get a consistent name
-    assets_defs = sorted(asset_graph.assets_defs, key=lambda ad: (sorted((ak for ak in ad.keys))))
+    computations = sorted(
+        computations, key=lambda c: (sorted((ak for ak in c.selected_asset_keys)))
+    )
 
     # if the same graph/op is used in multiple assets_definitions, their invocations must have
     # different names. we keep track of definitions that share a name and add a suffix to their
     # invocations to solve this issue
     collisions: Dict[str, int] = {}
-    assets_defs_by_node_handle: Dict[NodeHandle, AssetsDefinition] = {}
+    computations_by_node_handle: Dict[NodeHandle, AssetGraphComputation] = {}
     node_alias_and_output_by_asset_key: Dict[AssetKey, Tuple[str, str]] = {}
-    for assets_def in (ad for ad in assets_defs if ad.is_executable):
-        node_name = assets_def.node_def.name
+    for computation in computations:
+        node_name = computation.node_def.name
         if collisions.get(node_name):
             collisions[node_name] += 1
             node_alias = f"{node_name}_{collisions[node_name]}"
@@ -485,20 +465,21 @@ def build_node_deps(
             node_alias = node_name
 
         # unique handle for each AssetsDefinition
-        assets_defs_by_node_handle[NodeHandle(node_alias, parent=None)] = assets_def
-        for output_name, key in assets_def.keys_by_output_name.items():
+        computations_by_node_handle[NodeHandle(node_alias, parent=None)] = computation
+        for output_name, key in computation.keys_by_output_name.items():
             node_alias_and_output_by_asset_key[key] = (node_alias, output_name)
 
     blocking_asset_check_output_handles_by_asset_key = (
         _get_blocking_asset_check_output_handles_by_asset_key(
-            assets_defs_by_node_handle,
+            computations_by_node_handle,
+            {spec.key for spec in asset_graph.get_all_check_specs() if spec.blocking},
         )
     )
 
     deps: Dict[NodeInvocation, Dict[str, IDependencyDefinition]] = {}
-    for node_handle, assets_def in assets_defs_by_node_handle.items():
+    for node_handle, computation in computations_by_node_handle.items():
         # the key that we'll use to reference the node inside this AssetsDefinition
-        node_def_name = assets_def.node_def.name
+        node_def_name = computation.node_def.name
         alias = node_handle.name if node_handle.name != node_def_name else None
         node_key = NodeInvocation(node_def_name, alias=alias)
         deps[node_key] = {}
@@ -507,21 +488,35 @@ def build_node_deps(
         # a single method. At present using `keys_by_input_name` for asset checks only will exclude
         # `additional_deps`, so we need to use `node_keys_by_input_name`. But using
         # `node_keys_by_input_name` breaks cycle resolution on subsettable multi-assets.
-        inputs_map = (
-            assets_def.node_keys_by_input_name
-            if has_only_asset_checks(assets_def)
-            else assets_def.keys_by_input_name
-        )
+        if computation.selected_asset_check_keys and not computation.selected_asset_keys:
+            inputs_map = computation.keys_by_input_name
+        else:
+            upstream_keys_of_selected_assets_and_checks = {
+                *(
+                    parent_key
+                    for key in computation.selected_asset_keys
+                    for parent_key in asset_graph.get(key).parent_keys
+                ),
+                *(key.asset_key for key in computation.selected_asset_check_keys),
+            }
+
+            inputs_map = {
+                name: key
+                for name, key in computation.keys_by_input_name.items()
+                if key in upstream_keys_of_selected_assets_and_checks
+            }
 
         # connect each input of this AssetsDefinition to the proper upstream node
         for input_name, upstream_asset_key in inputs_map.items():
             # ignore self-deps
-            if upstream_asset_key in assets_def.keys:
+            if upstream_asset_key in computation.selected_asset_keys:
                 continue
 
             # if this assets def itself performs checks on an upstream key, exempt it from being
             # blocked on other checks
-            if upstream_asset_key not in {ck.asset_key for ck in assets_def.check_keys}:
+            if upstream_asset_key not in {
+                ck.asset_key for ck in computation.selected_asset_check_keys
+            }:
                 blocking_asset_check_output_handles = (
                     blocking_asset_check_output_handles_by_asset_key.get(upstream_asset_key)
                 )
@@ -552,12 +547,10 @@ def build_node_deps(
                 deps[node_key][input_name] = BlockingAssetChecksDependencyDefinition(
                     asset_check_dependencies=asset_check_deps, other_dependency=None
                 )
-    return deps, assets_defs_by_node_handle
+    return deps, computations_by_node_handle
 
 
-def _has_cycles(
-    deps: DependencyMapping[NodeInvocation],
-) -> bool:
+def _has_cycles(deps: DependencyMapping[NodeInvocation]) -> bool:
     """Detect if there are cycles in a dependency dictionary."""
     try:
         node_deps: Dict[str, Set[str]] = {}

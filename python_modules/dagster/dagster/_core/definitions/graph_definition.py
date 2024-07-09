@@ -926,7 +926,7 @@ class GraphDefinition(NodeDefinition):
 
         return all_destinations
 
-    def get_op_handles(self, parent: NodeHandle) -> AbstractSet[NodeHandle]:
+    def get_op_handles(self, parent: Optional[NodeHandle]) -> AbstractSet[NodeHandle]:
         return {
             op_handle
             for node in self.nodes
