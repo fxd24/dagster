@@ -738,7 +738,7 @@ Dagster supports fetching additional metadata at dbt execution time to attach as
   <code>dagster-dbt>=0.23.6</code>.
 </Note>
 
-Dagster can automatically fetch row counts for dbt-generated tables and emit them as [materialization metadata](/concepts/metadata-tags/asset-metadata) to be displayed in the Dagster UI.
+Dagster can automatically fetch [row counts](/concepts/metadata-tags/asset-metadata/table-metadata#attaching-row-count) for dbt-generated tables and emit them as [materialization metadata](/concepts/metadata-tags/asset-metadata) to be displayed in the Dagster UI.
 
 Row counts are fetched in parallel to the execution of your dbt models. To enable this feature, call <PyObject object="fetch_row_counts" module="dagster_dbt.core.resources_v2.DbtEventIterator" displayText="fetch_row_counts()" /> on the <PyObject object="DbtEventIterator" module="dagster_dbt.core.resources_v2" /> returned by the `stream()` dbt CLI call:
 
@@ -771,7 +771,7 @@ Once your dbt models have been materialized, you can view the row count data in 
   <code>dagster-dbt>=0.23.9</code>.
 </Note>
 
-Dagster allows you to emit column-level metadata, like column schema and column lineage, as [materialization metadata](/concepts/metadata-tags/asset-metadata).
+Dagster allows you to emit column-level metadata, like [column schema](/concepts/metadata-tags/asset-metadata/table-metadata#attaching-column-schema) and [column lineage](/concepts/metadata-tags/asset-metadata/column-level-lineage), as [materialization metadata](/concepts/metadata-tags/asset-metadata).
 
 With this metadata, you can view documentation in Dagster for all columns, not just columns described in your dbt project.
 
