@@ -233,6 +233,28 @@ def scope_fetch_row_count() -> None:
     # end_fetch_row_count
 
 
+def scope_fetch_column_metadata() -> None:
+    # start_fetch_column_metadata
+    from pathlib import Path
+    from dagster import AssetKey, AssetExecutionContext
+    from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
+    from typing import Any, Mapping
+
+    manifest_path = Path("path/to/dbt_project/target/manifest.json")
+
+    @dbt_assets(
+        manifest=manifest_path,
+    )
+    def my_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
+        yield from (
+            dbt.cli(["build"], context=context)
+            .stream()
+            .fetch_column_metadata(with_column_lineage=True)
+        )
+
+    # end_fetch_column_metadata
+
+
 def scope_custom_group_name_dagster_dbt_translator():
     # start_custom_group_name_dagster_dbt_translator
     from pathlib import Path

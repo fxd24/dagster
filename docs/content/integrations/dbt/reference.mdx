@@ -763,57 +763,37 @@ Once your dbt models have been materialized, you can view the row count data in 
 
 <Note>
   <strong>
-    Emitting column-level metadata as materialization metadata is currently an
-    experimental feature.{" "}
+    Emitting column-level metadata for dbt models is currently an experimental
+    feature.
   </strong>{" "}
-  To use this feature, you'll need to be on at least <code>dagster>=1.7.0</code>{" "}
-  and
-  <code>dagster-dbt>=0.23.0</code>.
+  To use this feature, you'll need to be on at least{" "}
+  <code>dagster>=0.17.9</code> and
+  <code>dagster-dbt>=0.23.6</code>.
 </Note>
 
 Dagster allows you to emit column-level metadata, like column schema and column lineage, as [materialization metadata](/concepts/metadata-tags/asset-metadata).
 
 With this metadata, you can view documentation in Dagster for all columns, not just columns described in your dbt project.
 
-To collect this metadata for your dbt project, specify the `dagster` dbt package in your `packages.yml` or `dependencies.yml`, and then run `dbt deps`.
+Column-level metadata is fetched in parallel to the execution of your dbt models. To enable this feature, call <PyObject object="fetch_column_metadata" module="dagster_dbt.core.resources_v2.DbtEventIterator" displayText="fetch_column_metadata()" /> on the <PyObject object="DbtEventIterator" module="dagster_dbt.core.resources_v2" /> returned by the `stream()` dbt CLI call. You can choose whether to additionally fetch column lineage information:
 
-```yaml
-packages:
-  - git: "https://github.com/dagster-io/dagster.git"
-    subdirectory: "python_modules/libraries/dagster-dbt/dbt_packages/dagster"
-    revision: DAGSTER_VERSION # replace with the version of `dagster` you are using.
-```
+```python startafter=start_fetch_column_metadata endbefore=end_fetch_column_metadata file=/integrations/dbt/dbt.py dedent=4
+from pathlib import Path
+from dagster import AssetKey, AssetExecutionContext
+from dagster_dbt import DagsterDbtTranslator, DbtCliResource, dbt_assets
+from typing import Any, Mapping
 
-Then, enable the `dagster.log_column_level_metadata()` macro as a [post-hook](https://docs.getdbt.com/reference/resource-configs/pre-hook-post-hook) for the dbt resources that should emit column schema metadata. For example, adding the following snippet in `dbt_project.yml` enables this macro for all dbt models, seeds, and snapshots:
+manifest_path = Path("path/to/dbt_project/target/manifest.json")
 
-```yaml
-models:
-  +post-hook:
-    - "{{ dagster.log_column_level_metadata() }}"
-
-seeds:
-  +post-hook:
-    - "{{ dagster.log_column_level_metadata() }}"
-
-snapshots:
-  +post-hook:
-    - "{{ dagster.log_column_level_metadata() }}"
-```
-
-Column dependencies can be removed from materialization metadata by disabling the collection of parent relation metadata. This can be done by setting the `enable_parent_relation_metadata_collection` argument to `False` in the `dagster.log_column_level_metadata()` macro:
-
-```yaml
-models:
-  +post-hook:
-    - "{{ dagster.log_column_level_metadata(enable_parent_relation_metadata_collection=false) }}"
-
-seeds:
-  +post-hook:
-    - "{{ dagster.log_column_level_metadata(enable_parent_relation_metadata_collection=false) }}"
-
-snapshots:
-  +post-hook:
-    - "{{ dagster.log_column_level_metadata(enable_parent_relation_metadata_collection=false) }}"
+@dbt_assets(
+    manifest=manifest_path,
+)
+def my_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
+    yield from (
+        dbt.cli(["build"], context=context)
+        .stream()
+        .fetch_column_metadata(with_column_lineage=True)
+    )
 ```
 
 ---
